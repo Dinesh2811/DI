@@ -8,8 +8,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
 //        com.dinesh.android.v0.DI().main()
-        com.dinesh.dagger.v0.constructor.DI().main()
+//        com.dinesh.dagger.v0.constructor.DI().main()
 //        com.dinesh.dagger.v0.field.DI().main()
+//        com.dinesh.dagger.v0.method.DI().main()
+//        com.dinesh.dagger.v0.constructor_field.DI().main()
+//        com.dinesh.dagger.v0.full.DI().main()
 
+        com.dinesh.dagger.v1.DI().main()
     }
 }
