@@ -2,6 +2,7 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")   // ksp
+    id("kotlin-kapt")   // kapt
 }
 
 android {
@@ -52,6 +53,7 @@ dependencies {
     implementation("com.google.dagger:dagger-android:2.48")
     implementation("com.google.dagger:dagger-android-support:2.48")
     ksp("com.google.dagger:dagger-compiler:2.48")   //  Dagger compiler
+//    kapt("com.google.dagger:dagger-compiler:2.48")   //  Dagger compiler
 ////    ksp("com.google.dagger:hilt-compiler:2.48") //  Hilt compiler
 
 

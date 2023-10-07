@@ -14,6 +14,8 @@ class MainActivity : ComponentActivity() {
 //        com.dinesh.dagger.v0.constructor_field.DI().main()
 //        com.dinesh.dagger.v0.full.DI().main()
 
-        com.dinesh.dagger.v1.DI().main()
+        com.dinesh.dagger.v1.constructor.DI().main()
+//        com.dinesh.dagger.v1.constructor_method.DI().main()
+//        com.dinesh.dagger.v1.constructor_field.DI().main()
     }
 }
