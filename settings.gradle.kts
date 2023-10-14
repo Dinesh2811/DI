@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "Dependency Injection"
 include(":app")
 include(":dagger")
+include(":hilt")

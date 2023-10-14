@@ -2,10 +2,11 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")   // ksp
+    id("com.google.dagger.hilt.android")
 }
 
 android {
-    namespace = "com.dinesh.dagger"
+    namespace = "com.dinesh.hilt"
     compileSdk = 34
 
     defaultConfig {
@@ -47,11 +48,11 @@ android {
 }
 
 dependencies {
-    // Dagger
-    implementation("com.google.dagger:dagger:2.48.1")
-    implementation("com.google.dagger:dagger-android:2.48.1")
-    implementation("com.google.dagger:dagger-android-support:2.48.1")
-    ksp("com.google.dagger:dagger-compiler:2.48.1")
+    //  Hilt
+    implementation("androidx.hilt:hilt-navigation-compose:1.0.0")
+    implementation("com.google.dagger:hilt-android:2.48.1")
+    ksp("com.google.dagger:hilt-android-compiler:2.48.1")
+    ksp("androidx.hilt:hilt-compiler:1.0.0")
 
 
     implementation("androidx.core:core-ktx:1.12.0")
