@@ -21,6 +21,7 @@ class MainActivity : AppCompatActivity() {
 //        com.dinesh.dagger.v1.constructor_method.DI().main()
 //        com.dinesh.dagger.v1.constructor_field.DI().main()
 
-        startActivity(Intent(this, com.dinesh.hilt.v2.Main::class.java))
+//        startActivity(Intent(this, com.dinesh.hilt.v2.Main::class.java))
+        startActivity(Intent(this, com.dinesh.hilt.basic.named.Main::class.java))
     }
 }
