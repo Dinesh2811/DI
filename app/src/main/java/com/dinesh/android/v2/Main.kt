@@ -9,7 +9,14 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -17,41 +24,57 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Query
 
 private val TAG = "log_API_v3"
 
-class Main : AppCompatActivity() {
+class Main : AppCompatActivity(), ApiStateCallback<List<Todo>> {
     private val apiService = ApiClient.getApiInterface<ApiService>(Constants.BASE_URL)
-    private val apiRepositoryImpl: ApiRepositoryImpl = ApiRepositoryImpl(apiService)
+    private val apiRepositoryImpl: ApiRepositoryImpl = ApiRepositoryImpl(apiService, 40)
     private val apiViewModel: ApiViewModel by viewModels {
-        ApiViewModelFactory(apiRepositoryImpl, 4)
+        ApiViewModelFactory(apiRepositoryImpl, this)
     }
+
+    private var todosList: List<Todo> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch(Dispatchers.Main) {
-            apiViewModel.fetchTodos()
+            apiViewModel.getTodos()
         }
-        apiViewModel.todosLiveData.observe(this) { state ->
-            handleApiState(state)
+
+        apiViewModel.todosLiveData.observe(this) { todos ->
+            Log.e(TAG, "onCreate: ${todos[7]}")
+        }
+
+        apiViewModel.todosFlow.onEach { todos ->
+            todosList = todos
+        }.catch { exception ->
+            Log.e(TAG, "Error observing todosFlow: ${exception.message}")
+        }.launchIn(lifecycleScope)
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            Log.i(TAG, "getTodosById: ${apiViewModel.getTodosById(2)?.size}")
+            Log.d(TAG, "getTodosByPosition: ${apiViewModel.getTodosByPosition()}")
         }
     }
-    private fun handleApiState(apiState: ApiState<List<Todo>>) {
-        when (apiState) {
+
+    override fun onApiStateChanged(state: ApiState<List<Todo>?>) {
+        when (state) {
             is ApiState.Loading -> handleLoadingState()
             is ApiState.Success -> {
-                val todos: List<Todo> = apiState.data
+                val todos: List<Todo>? = state.data
                 updateUI(todos)
             }
             is ApiState.Error -> {
-                val errorMessage: String = apiState.message
-                val data: List<Todo>? = apiState.data
+                val errorMessage: String = state.message
+                val data: List<Todo>? = state.data
                 showError(errorMessage)
                 updateUI(data)
             }
             is ApiState.Exception -> {
-                val exception: Throwable = apiState.exception
+                val exception: Throwable = state.exception
                 handleException(exception)
             }
         }
@@ -75,82 +98,128 @@ class Main : AppCompatActivity() {
 
 }
 
-class ApiViewModel(private val repository: ApiRepository, private val position: Int) : ViewModel(), HandleApiState {
-    private val _todosLiveData = MutableLiveData<ApiState<List<Todo>>>()
-    val todosLiveData: LiveData<ApiState<List<Todo>>> = _todosLiveData
+interface ApiStateCallback<T> {
+    fun onApiStateChanged(state: ApiState<T?>)
+}
 
-    suspend fun fetchTodos(): List<Todo>? {
-        _todosLiveData.value = ApiState.Loading
-        handleLoadingState()
-        return try {
-            when (val apiState = repository.getTodos()) {
-                is ApiState.Success -> {
-                    val todos: List<Todo> = apiState.data
-                    _todosLiveData.value = ApiState.Success(todos)
-                    updateUI(todos, position)
+class ApiViewModel(private val repository: ApiRepository, private val apiStateCallback: ApiStateCallback<List<Todo>>) : ViewModel() {
+    private val _todosLiveData = MutableLiveData<List<Todo>>()
+    val todosLiveData: LiveData<List<Todo>> = _todosLiveData
+
+    private val _todosFlow: MutableStateFlow<List<Todo>> = MutableStateFlow(emptyList())
+    val todosFlow: StateFlow<List<Todo>> = _todosFlow.asStateFlow()
+
+    fun getTodos() {
+        viewModelScope.launch {
+            apiStateCallback.onApiStateChanged(ApiState.Loading)
+            val apiState = repository.getTodosState()
+            if (apiState is ApiState.Success) {
+                apiState.data?.let { todosList ->
+                    _todosLiveData.value = todosList
+                    viewModelScope.launch { _todosFlow.emit(todosList) }
                 }
-                is ApiState.Error -> {
-                    val errorMessage: String = apiState.message
-                    val data: List<Todo>? = apiState.data
-                    _todosLiveData.value = ApiState.Error(errorMessage, data)
-                    showError(errorMessage)
-                    updateUI(data)
-                }
-                is ApiState.Exception -> {
-                    val exception: Throwable = apiState.exception
-                    _todosLiveData.value = ApiState.Exception(exception, null)
-                    handleException(exception)
-                    updateUI(null)
-                }
-                else -> updateUI(null)
             }
-        } catch (e: Exception) {
-            _todosLiveData.value = ApiState.Exception(e, null)
-            handleException(e)
-            updateUI(null)
+            apiStateCallback.onApiStateChanged(apiState)
         }
     }
 
+    private var todosById: List<Todo>? = null
+    private var todoByPosition: Todo? = null
+
+    suspend fun getTodosById(userId: Int): List<Todo>? {
+        if (todosById == null) {
+            val apiState = repository.getTodosByIdState(userId)
+            if (apiState is ApiState.Success) {
+                todosById = apiState.data
+            }
+//            apiStateCallback.onApiStateChanged(apiState)
+        }
+        return todosById
+    }
+
+    suspend fun getTodosByPosition(): Todo? {
+        if (todoByPosition == null) {
+            val apiState = repository.getTodosByPositionState()
+            if (apiState is ApiState.Success) {
+                todoByPosition = apiState.data
+            }
+        }
+        return todoByPosition
+    }
 }
 
-interface HandleApiState {
-    suspend fun handleLoadingState() {
-        Log.i(TAG, "handleLoadingState")
-    }
-
-    suspend fun updateUI(todos: List<Todo>?, position: Int = 0): List<Todo>? {
-        Log.d(TAG, "updateUI: ${todos?.get(position)}")
-        return todos
-    }
-
-    suspend fun showError(errorMessage: String) {
-        Log.w(TAG, "showError: $errorMessage" )
-    }
-
-    suspend fun handleException(exception: Throwable) {
-        Log.e(TAG, "handleException: ${exception.message}")
+class ApiViewModelFactory(private val repository: ApiRepository, private val apiStateCallback: ApiStateCallback<List<Todo>>) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(ApiViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return ApiViewModel(repository, apiStateCallback) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
 
 interface ApiRepository {
-    suspend fun getTodos(): ApiState<List<Todo>>
+    suspend fun getTodosState(): ApiState<List<Todo>?>
+    suspend fun getTodosByIdState(userId: Int): ApiState<List<Todo>?>
+    suspend fun getTodosByPositionState(): ApiState<Todo>
 }
 
-class ApiRepositoryImpl(private val apiService: ApiService): ApiRepository {
-    override suspend fun getTodos(): ApiState<List<Todo>> {
+class ApiRepositoryImpl(private val apiService: ApiService, private val position: Int) : ApiRepository {
+
+    override suspend fun getTodosState(): ApiState<List<Todo>?> {
         return try {
-            val response = apiService.getTodos()
+            val response = apiService.fetchTodos()
             if (response.isSuccessful) {
-                response.body()?.let {
-                    ApiState.Success(it)
-                } ?: ApiState.Error("No data available.", null)
+                ApiState.Success(response.body())
             } else {
-                ApiState.Error("Failed to fetch data", null)
+                ApiState.Error("API call failed", null)
             }
         } catch (e: Exception) {
             ApiState.Exception(e, null)
         }
     }
+
+    override suspend fun getTodosByIdState(userId: Int): ApiState<List<Todo>?> {
+        return try {
+            val response = apiService.fetchTodosById(userId)
+            if (response.isSuccessful) {
+                ApiState.Success(response.body())
+            } else {
+                ApiState.Error("API call failed", null)
+            }
+        } catch (e: Exception) {
+            ApiState.Exception(e, null)
+        }
+    }
+
+    override suspend fun getTodosByPositionState(): ApiState<Todo> {
+        return try {
+            val response = apiService.fetchTodos()
+            if (response.isSuccessful) {
+                val todos: List<Todo>? = response.body()
+                if (todos?.isNotEmpty() == true) {
+                    if (position >= 0 && position < todos.size) {
+                        ApiState.Success(todos[position])
+                    } else{
+                        ApiState.Error("Invalid position", null)
+                    }
+                } else {
+                    ApiState.Error("Empty list or null", null)
+                }
+            } else {
+                ApiState.Error("API call failed", null)
+            }
+        } catch (e: Exception) {
+            ApiState.Exception(e, null)
+        }
+    }
+}
+
+sealed class ApiState<out T> {
+    data object Loading : ApiState<Nothing>()
+    data class Success<T>(val  data: T) : ApiState<T>()
+    data class Error<T>(val message: String, val data: T?) : ApiState<T>()
+    data class Exception<T>(val exception: Throwable, val data: T?) : ApiState<T>()
 }
 
 object ApiClient {
@@ -181,24 +250,10 @@ object ApiClient {
 
 interface ApiService {
     @GET("todos")
-    suspend fun getTodos(): Response<List<Todo>>
-}
+    suspend fun fetchTodos(): Response<List<Todo>>
 
-sealed class ApiState<out T> {
-    data object Loading : ApiState<Nothing>()
-    data class Success<T>(val data: T) : ApiState<T>()
-    data class Error<T>(val message: String, val data: T?) : ApiState<T>()
-    data class Exception<T>(val exception: Throwable, val data: T?) : ApiState<T>()
-}
-
-class ApiViewModelFactory(private val repository: ApiRepository, private val position: Int) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(ApiViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return ApiViewModel(repository, position) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
-    }
+    @GET("todos")
+    suspend fun fetchTodosById(@Query("userId") userId: Int): Response<List<Todo>>
 }
 
 data class Todo(
@@ -211,4 +266,3 @@ data class Todo(
 object Constants {
     const val BASE_URL = "https://jsonplaceholder.typicode.com/"
 }
-
